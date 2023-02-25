@@ -16,6 +16,7 @@ Environment:
 
 #include <fltKernel.h>
 #include <dontuse.h>
+#include "RegMonitor.h"
 
 #pragma prefast(disable:__WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
@@ -85,6 +86,13 @@ FsFilter1PreOperation (
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext
     );
 
+FLT_PREOP_CALLBACK_STATUS
+FsFilter1PreOperation2(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+);
+
 VOID
 FsFilter1OperationStatusCallback (
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
@@ -133,8 +141,12 @@ EXTERN_C_END
 //
 
 CONST FLT_OPERATION_REGISTRATION Callbacks[] = {
-
 #if 0 // TODO - List all of the requests to filter.
+      { IRP_MJ_SET_INFORMATION,
+      0,
+      FsFilter1PreOperation2,
+      FsFilter1PostOperation },
+
     { IRP_MJ_CREATE,
       0,
       FsFilter1PreOperation,
@@ -403,7 +415,7 @@ Return Value:
 
     PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
                   ("FsFilter1!FsFilter1InstanceSetup: Entered\n") );
-
+    DbgPrint("[dmjoo] driver entry\n");
     return STATUS_SUCCESS;
 }
 
@@ -555,6 +567,7 @@ Return Value:
     PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
                   ("FsFilter1!DriverEntry: Entered\n") );
 
+    InstallRegMonitor(DriverObject);
     //
     //  Register with FltMgr to tell it our callback routines
     //
@@ -611,6 +624,8 @@ Return Value:
 
     PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
                   ("FsFilter1!FsFilter1Unload: Entered\n") );
+
+    UnInstallRegMonitor();
 
     FltUnregisterFilter( gFilterHandle );
 
@@ -887,3 +902,135 @@ Return Value:
                (iopb->MinorFunction == IRP_MN_NOTIFY_CHANGE_DIRECTORY))
              );
 }
+
+/*************************************************************************
+    MiniFilter callback routines.
+*************************************************************************/
+FLT_PREOP_CALLBACK_STATUS
+FsFilter1PreOperation2(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+)
+/*++
+
+Routine Description:
+
+    This routine is a pre-operation dispatch routine for this miniFilter.
+
+    This is non-pageable because it could be called on the paging path
+
+Arguments:
+
+    Data - Pointer to the filter callbackData that is passed to us.
+
+    FltObjects - Pointer to the FLT_RELATED_OBJECTS data structure containing
+        opaque handles to this filter, instance, its associated volume and
+        file object.
+
+    CompletionContext - The context for the completion routine for this
+        operation.
+
+Return Value:
+
+    The return value is the status of the operation.
+
+--*/
+{
+    NTSTATUS status;
+
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
+
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1PreOperation: Entered\n"));
+
+    //
+    //  See if this is an operation we would like the operation status
+    //  for.  If so request it.
+    //
+    //  NOTE: most filters do NOT need to do this.  You only need to make
+    //        this call if, for example, you need to know if the oplock was
+    //        actually granted.
+    //
+    // IRP_MJ_SET_INFORMATION 메시지 후킹 함수
+    if (FltObjects->FileObject->FileName.Buffer != NULL)
+    {
+        DbgPrint("[dmjoo] %S\n", FltObjects->FileObject->FileName.Buffer);
+    }
+
+        if (FltObjects->FileObject->FileName.Buffer != NULL && wcsstr(FltObjects->FileObject->FileName.Buffer, L"\\Registry") != NULL)
+        {
+            UNICODE_STRING strKey = { 0 };
+            strKey.Length = strKey.MaximumLength = (USHORT)FltObjects->FileObject->FileName.Length;
+            strKey.Buffer = FltObjects->FileObject->FileName.Buffer;
+            
+            DbgPrint("[dmjoo] %S: ", FltObjects->FileObject->FileName.Buffer);
+            if (wcsstr(strKey.Buffer, L"HKLM") != NULL || wcsstr(strKey.Buffer, L"HKCU") != NULL)
+            {
+                DbgPrint("[dmjoo registry] %S\n", strKey.Buffer);
+                /*
+                PFLT_SET_INFORMATION_REQUEST pSetRequest = (PFLT_SET_INFORMATION_REQUEST)Data->Iopb->Parameters.SetFileInformation.InfoBuffer;
+                if (pSetRequest != NULL && pSetRequest->FileSystemInformationClass == FileFsControlInformation)
+                {
+                    FILE_FS_CONTROL_INFORMATION* pFsControlInfo = (FILE_FS_CONTROL_INFORMATION*)pSetRequest->Buffer;
+
+                    if (pFsControlInfo->ControlCode == FSCTL_SET_REPARSE_POINT)
+                    {
+                        REPARSE_GUID_DATA_BUFFER* pReparseData = (REPARSE_GUID_DATA_BUFFER*)pFsControlInfo->Buffer;
+
+                        // 키 및 값 이름 가져오기
+                        UNICODE_STRING strKeyName, strValueName;
+                        RtlInitUnicodeString(&strKeyName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset);
+                        RtlInitUnicodeString(&strValueName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset + strKeyName.Length + sizeof(WCHAR));
+
+                        // 변경 전후의 값을 가져오기
+                        BYTE* pOldData = pReparseData->GenericReparseBuffer.DataBuffer;
+                        DWORD dwOldDataSize = pReparseData->GenericReparseBuffer.DataBufferLength;
+                        BYTE* pNewData = pSetRequest->Buffer + sizeof(FILE_FS_CONTROL_INFORMATION);
+                        DWORD dwNewDataSize = pSetRequest->Length - sizeof(FILE_FS_CONTROL_INFORMATION);
+
+                        // 변경 내용 출력
+                        DbgPrint("Registry key/value modified: %wZ\\%wZ\n", &strKeyName, &strValueName);
+                        DbgPrint("Old data: ");
+                        for (DWORD i = 0; i < dwOldDataSize; i++)
+                        {
+                            DbgPrint("%02X ", pOldData[i]);
+                        }
+                        DbgPrint("\n");
+
+                        DbgPrint("New data: ");
+                        for (DWORD i = 0; i < dwNewDataSize; i++)
+                        {
+                            DbgPrint("%02X ", pNewData[i]);
+                        }
+                        DbgPrint("\n");
+                    }
+                }*/
+                
+            }
+        }
+
+
+
+    if (FsFilter1DoRequestOperationStatus(Data)) {
+
+        status = FltRequestOperationStatusCallback(Data,
+            FsFilter1OperationStatusCallback,
+            (PVOID)(++OperationStatusCtx));
+        if (!NT_SUCCESS(status)) {
+
+            PT_DBG_PRINT(PTDBG_TRACE_OPERATION_STATUS,
+                ("FsFilter1!FsFilter1PreOperation: FltRequestOperationStatusCallback Failed, status=%08x\n",
+                    status));
+        }
+    }
+
+    // This template code does not do anything with the callbackData, but
+    // rather returns FLT_PREOP_SUCCESS_WITH_CALLBACK.
+    // This passes the request down to the next miniFilter in the chain.
+
+    return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+}
+
+
