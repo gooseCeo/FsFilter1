@@ -12,6 +12,10 @@ https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/load-order-groups
 Registry INFORMATION
 https://m.blog.naver.com/rlfmalehd/220749232200
 
+When building your driver, 
+change your driver package project settings so that Inf2Cat sets /uselocaltime. 
+To do so, use Configuration Properties->Inf2Cat->General->Use Local Time.
+
 modifiy .inf
 Class       = "AntiVirus"                         ;This is determined by the work this filter driver does
 ClassGuid   = {b1d1a169-c54f-4379-81db-bee7d88d7454}    ;This value is determined by the Load Order Group value

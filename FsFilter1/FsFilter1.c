@@ -415,7 +415,7 @@ Return Value:
 
     PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
                   ("FsFilter1!FsFilter1InstanceSetup: Entered\n") );
-    DbgPrint("[dmjoo] driver entry\n");
+    
     return STATUS_SUCCESS;
 }
 
@@ -583,6 +583,7 @@ Return Value:
         //
         //  Start filtering i/o
         //
+        DbgPrint("[dmjoo] driver entry\n");
 
         status = FltStartFiltering( gFilterHandle );
 

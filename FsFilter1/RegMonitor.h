@@ -1,6 +1,7 @@
 #include "stdio.h"
 #include <ntifs.h>
 
+void getRegValue();
 
 typedef struct _GLOBAL_CONTEXT {
 	PDRIVER_OBJECT DriverObject;
@@ -140,7 +141,8 @@ NTSTATUS RegistryFilterCallback(
 	NTSTATUS Status = STATUS_SUCCESS;
 	REG_NOTIFY_CLASS NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 	PUNICODE_STRING RootObjectName;
-	ULONG_PTR RootObjectID;
+	ULONG_PTR RootObjectID;	
+	
 	UNREFERENCED_PARAMETER(CallbackContext);
 
 	/*
@@ -158,7 +160,18 @@ NTSTATUS RegistryFilterCallback(
 			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->NewName);
 		}
 		
+	}	
+	/*
+	else if (RegNtPreCreateKeyEx == NotifyClass)
+	{
+		PREG_CREATE_KEY_INFORMATION  RegInformation = (PREG_CREATE_KEY_INFORMATION)Argument2;
+		
+		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->RootObject, &RootObjectID, &RootObjectName)))
+		{
+			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->CompleteName);
+		}
 	}
+	
 	else if (RegNtDeleteKey == NotifyClass) {
 		PREG_DELETE_KEY_INFORMATION RegInformation = (PREG_DELETE_KEY_INFORMATION)Argument2;
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
@@ -170,13 +183,71 @@ NTSTATUS RegistryFilterCallback(
 		PREG_DELETE_VALUE_KEY_INFORMATION RegInformation = (PREG_DELETE_VALUE_KEY_INFORMATION)Argument2;
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
 		{
-			DbgPrint("[dmjoo:deleteValueKey] %wZ\n", RootObjectName, RegInformation->ValueName);
+			DbgPrint("[dmjoo:deleteValueKey] %wZ %wZ\n", RootObjectName, RegInformation->ValueName);
 		}
 	}
-	
+	*/
+	else if (RegNtSetValueKey == NotifyClass) {
+		PREG_SET_VALUE_KEY_INFORMATION RegInformation = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
+		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
+		{
+			DbgPrint("[dmjoo:SetValueKey] %wZ [%wZ]\n", RootObjectName, RegInformation->ValueName);
+			//DbgPrint("[dmjoo:SetValueKey] %wZ[%wZ]\n", RegInformation->ValueName);
+			if ( RegInformation->DataSize > 0 ) DbgPrint("[dmjoo:SetValueKey_Data] [%d:%d:%S]\n", RegInformation->Type, RegInformation->DataSize, RegInformation->Data);
+
+			getRegValue(RootObjectName, RegInformation->ValueName);
+		}
+	}
+	/*
+	else if (RegNtSetValueKey == NotifyClass) {
+		PREG_SET_VALUE_KEY_INFORMATION SetValueInfo = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
+		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, SetValueInfo->Object, &RootObjectID, &RootObjectName)))
+		{
+			DbgPrint("ValueName: %wZ", &SetValueInfo->ValueName);
+			DbgPrint("Type: %d, DataSize: %d, Data: %p", SetValueInfo->Type, SetValueInfo->DataSize, SetValueInfo->Data);
+		}
+	}
+
+	*/
 	return Status;
 }
 
+void getRegValue(PUNICODE_STRING keyName, PUNICODE_STRING valueName)
+{
+	//UNICODE_STRING keyName;
+	//RtlInitUnicodeString(&keyName, L"\\Registry\\Machine\\SOFTWARE\\Notepad++");
+
+	OBJECT_ATTRIBUTES objectAttributes;
+	InitializeObjectAttributes(&objectAttributes, keyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+	HANDLE keyHandle = NULL;
+	NTSTATUS status = ZwOpenKey(&keyHandle, KEY_ALL_ACCESS, &objectAttributes);
+	if (NT_SUCCESS(status))
+	{
+		//UNICODE_STRING valueName;
+		//RtlInitUnicodeString(&valueName, L"test");
+
+		PVOID data = NULL;
+		ULONG dataSize = 0;
+		status = ZwQueryValueKey(keyHandle, valueName, KeyValuePartialInformation, NULL, 0, &dataSize);
+		if (status == STATUS_BUFFER_TOO_SMALL)
+		{
+			data = ExAllocatePoolWithTag(NonPagedPool, dataSize, 'MYTG');
+			if (data != NULL)
+			{
+				status = ZwQueryValueKey(keyHandle, valueName, KeyValuePartialInformation, data, dataSize, &dataSize);
+				if (NT_SUCCESS(status))
+				{
+					PKEY_VALUE_PARTIAL_INFORMATION valueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)data;
+					DbgPrint("[dmjoo]ValueData: %.*S", valueInfo->DataLength, valueInfo->Data);
+				}
+				ExFreePool(data);
+			}
+		}
+
+		ZwClose(keyHandle);
+	}
+}
 
 NTSTATUS InstallRegMonitor(IN PDRIVER_OBJECT DriverObject)
 {
