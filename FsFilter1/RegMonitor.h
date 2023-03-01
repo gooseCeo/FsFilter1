@@ -1,7 +1,10 @@
 #include "stdio.h"
 #include <ntifs.h>
+#include "regfltr.h"
 
 void getRegValue();
+void getRegList(PUNICODE_STRING keyName);
+NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath*/);
 
 typedef struct _GLOBAL_CONTEXT {
 	PDRIVER_OBJECT DriverObject;
@@ -19,6 +22,8 @@ UNICODE_STRING g_PolicyKeyArray[] = {
 };
 ULONG g_PolicyKeyCount = sizeof(g_PolicyKeyArray) / sizeof(UNICODE_STRING);
 
+
+#define PROCESS_IMAGE_NAME_LENGTH 1024
 
 BOOLEAN
 CheckProcess(VOID) {
@@ -132,6 +137,88 @@ Exit:
 	return Matched;
 }
 
+LPCWSTR
+GetNotifyClassString(
+	_In_ REG_NOTIFY_CLASS NotifyClass
+)
+/*++
+
+Routine Description:
+
+	Converts from NotifyClass to a string
+
+Arguments:
+
+	NotifyClass - value that identifies the type of registry operation that
+		is being performed
+
+Return Value:
+
+	Returns a string of the name of NotifyClass.
+
+--*/
+{
+	switch (NotifyClass) {
+		/*
+			RegNtPreCreateKey,
+			RegNtPostCreateKey,
+			RegNtPreOpenKey,
+			RegNtPostOpenKey,
+		*/
+
+			
+	case RegNtPreDeleteKey:               return L"RegNtPreDeleteKey";
+	case RegNtPreSetValueKey:            return L"RegNtPreSetValueKey";
+	case RegNtPreDeleteValueKey:         return L"RegNtPreDeleteValueKey";
+	case RegNtPreSetInformationKey:         return L"RegNtPreSetInformationKey";
+	case RegNtPreRenameKey:                 return L"RegNtPreRenameKey";
+	case RegNtPreEnumerateKey:              return L"RegNtPreEnumerateKey";
+	case RegNtPreEnumerateValueKey:         return L"RegNtPreEnumerateValueKey";
+	case RegNtPreQueryKey:                  return L"RegNtPreQueryKey";
+	case RegNtPreQueryValueKey:             return L"RegNtPreQueryValueKey";
+	case RegNtPreQueryMultipleValueKey:     return L"RegNtPreQueryMultipleValueKey";
+	case RegNtPreKeyHandleClose:            return L"RegNtPreKeyHandleClose";
+	case RegNtPreCreateKeyEx:               return L"RegNtPreCreateKeyEx";
+	case RegNtPreOpenKeyEx:                 return L"RegNtPreOpenKeyEx";
+	case RegNtPreFlushKey:                  return L"RegNtPreFlushKey";
+	case RegNtPreLoadKey:                   return L"RegNtPreLoadKey";
+	case RegNtPreUnLoadKey:                 return L"RegNtPreUnLoadKey";
+	case RegNtPreQueryKeySecurity:          return L"RegNtPreQueryKeySecurity";
+	case RegNtPreSetKeySecurity:            return L"RegNtPreSetKeySecurity";
+	case RegNtPreRestoreKey:                return L"RegNtPreRestoreKey";
+	case RegNtPreSaveKey:                   return L"RegNtPreSaveKey";
+	case RegNtPreReplaceKey:                return L"RegNtPreReplaceKey";
+
+	case RegNtPostDeleteKey:                return L"RegNtPostDeleteKey";
+	case RegNtPostSetValueKey:              return L"RegNtPostSetValueKey";
+	case RegNtPostDeleteValueKey:           return L"RegNtPostDeleteValueKey";
+	case RegNtPostSetInformationKey:        return L"RegNtPostSetInformationKey";
+	case RegNtPostRenameKey:                return L"RegNtPostRenameKey";
+	case RegNtPostEnumerateKey:             return L"RegNtPostEnumerateKey";
+	case RegNtPostEnumerateValueKey:        return L"RegNtPostEnumerateValueKey";
+	case RegNtPostQueryKey:                 return L"RegNtPostQueryKey";
+	case RegNtPostQueryValueKey:            return L"RegNtPostQueryValueKey";
+	case RegNtPostQueryMultipleValueKey:    return L"RegNtPostQueryMultipleValueKey";
+	case RegNtPostKeyHandleClose:           return L"RegNtPostKeyHandleClose";
+	case RegNtPostCreateKeyEx:              return L"RegNtPostCreateKeyEx";
+	case RegNtPostOpenKeyEx:                return L"RegNtPostOpenKeyEx";
+	case RegNtPostFlushKey:                 return L"RegNtPostFlushKey";
+	case RegNtPostLoadKey:                  return L"RegNtPostLoadKey";
+	case RegNtPostUnLoadKey:                return L"RegNtPostUnLoadKey";
+	case RegNtPostQueryKeySecurity:         return L"RegNtPostQueryKeySecurity";
+	case RegNtPostSetKeySecurity:           return L"RegNtPostSetKeySecurity";
+	case RegNtPostRestoreKey:               return L"RegNtPostRestoreKey";
+	case RegNtPostSaveKey:                  return L"RegNtPostSaveKey";
+	case RegNtPostReplaceKey:               return L"RegNtPostReplaceKey";
+	case RegNtCallbackObjectContextCleanup: return L"RegNtCallbackObjectContextCleanup";
+
+	case RegNtPreQueryKeyName: return L"RegNtPreQueryKeyName";
+	case RegNtPostQueryKeyName: return L"RegNtPostQueryKeyName";
+
+	default:
+		return L"Unsupported REG_NOTIFY_CLASS";
+	}
+}
 
 NTSTATUS RegistryFilterCallback(
 	IN PVOID               CallbackContext,
@@ -139,17 +226,33 @@ NTSTATUS RegistryFilterCallback(
 	IN PVOID               Argument2
 ) {
 	NTSTATUS Status = STATUS_SUCCESS;
+	PCALLBACK_CONTEXT CallbackCtx;
 	REG_NOTIFY_CLASS NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 	PUNICODE_STRING RootObjectName;
 	ULONG_PTR RootObjectID;	
-	
-	UNREFERENCED_PARAMETER(CallbackContext);
 
-	/*
-	if (CheckProcess()) {
+	CallbackCtx = (PCALLBACK_CONTEXT)CallbackContext;
+	NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
+
+	HANDLE pid = PsGetCurrentProcessId();
+
+	if ((ULONGLONG)pid != 5272) return STATUS_SUCCESS;
+
+
+	if (Argument2 == NULL ) {
+
+		//
+		// This should never happen but the sal annotation on the callback 
+		// function marks Argument 2 as opt and is looser than what 
+		// it actually is.
+		//
+
 		return STATUS_SUCCESS;
 	}
-	*/
+	
+	//InfoPrint("\t[dmjoo]%d Callback: callbackmode-%d, [%d]NotifyClass-%S.", pid, CallbackCtx->CallbackMode, NotifyClass, GetNotifyClassString(NotifyClass));
+	
+	
 	
 	if (RegNtRenameKey == NotifyClass )
 	{		
@@ -171,13 +274,15 @@ NTSTATUS RegistryFilterCallback(
 			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->CompleteName);
 		}
 	}
-	
+	*/
 	else if (RegNtDeleteKey == NotifyClass) {
 		PREG_DELETE_KEY_INFORMATION RegInformation = (PREG_DELETE_KEY_INFORMATION)Argument2;
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
 		{
-			DbgPrint("[dmjoo:delete] %wZ\n", RootObjectName);
+			DbgPrint("[dmjoo:delete] %wZ\n", RootObjectName);			
 		}
+		//getRegList(RootObjectName);
+		BackupRegistryKey(RootObjectName);
 	}
 	else if (RegNtDeleteValueKey == NotifyClass) {
 		PREG_DELETE_VALUE_KEY_INFORMATION RegInformation = (PREG_DELETE_VALUE_KEY_INFORMATION)Argument2;
@@ -185,8 +290,9 @@ NTSTATUS RegistryFilterCallback(
 		{
 			DbgPrint("[dmjoo:deleteValueKey] %wZ %wZ\n", RootObjectName, RegInformation->ValueName);
 		}
+		getRegValue(RootObjectName, RegInformation->ValueName);
 	}
-	*/
+	
 	else if (RegNtSetValueKey == NotifyClass) {
 		PREG_SET_VALUE_KEY_INFORMATION RegInformation = (PREG_SET_VALUE_KEY_INFORMATION)Argument2;
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
@@ -212,6 +318,72 @@ NTSTATUS RegistryFilterCallback(
 	return Status;
 }
 
+void getRegList(PUNICODE_STRING keyName)
+{
+	//UNICODE_STRING keyName;
+	OBJECT_ATTRIBUTES attributes;
+	HANDLE hKey;
+	NTSTATUS status;
+	//ULONG subKeyCount;
+	KEY_FULL_INFORMATION keyInfo;
+	ULONG rLength;
+	// 백업할 레지스트리 키 이름
+	//RtlInitUnicodeString(&keyName, L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+
+	// 레지스트리 키 열기
+	InitializeObjectAttributes(&attributes, keyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
+	status = ZwOpenKey(&hKey, KEY_ALL_ACCESS, &attributes);
+	if (!NT_SUCCESS(status)) {
+		// 에러 처리
+	}
+
+	// 하위 키 수 가져오기
+	//status = ZwQueryKey(hKey, KeyFullInformation, NULL, 0, &subKeyCount);
+	//if (!NT_SUCCESS(status)) {
+		// 에러 처리
+	//}
+	status = ZwQueryKey(hKey, KeyFullInformation, &keyInfo, sizeof(keyInfo), &rLength);
+	if (!NT_SUCCESS(status)) {
+		// 에러 처리
+	}
+
+	DbgPrint("[dmjoo:subkeycount] %d : %d : %d\n", keyInfo.SubKeys, rLength, sizeof(keyInfo));
+	// 하위 키 수만큼 반복하여 각 하위 키 백업
+	for (ULONG i = 0; i < keyInfo.SubKeys; i++) {
+		// 하위 키 이름 가져오기
+		WCHAR subKeyNameBuffer[256];
+		ULONG subKeyNameLength;
+		status = ZwEnumerateKey(hKey, i, KeyBasicInformation, subKeyNameBuffer, sizeof(subKeyNameBuffer), &subKeyNameLength);
+		if (!NT_SUCCESS(status)) {
+			// 에러 처리
+			DbgPrint("[dmjoo:subkey] error %d\n", status);
+			continue;
+		}
+
+		// 하위 키 열기
+		OBJECT_ATTRIBUTES subKeyAttributes;
+		HANDLE hSubKey;
+		UNICODE_STRING subKeyName;
+		RtlInitUnicodeString(&subKeyName, subKeyNameBuffer);
+		InitializeObjectAttributes(&subKeyAttributes, &subKeyName, OBJ_CASE_INSENSITIVE, hKey, NULL);
+		
+		DbgPrint("[dmjoo:subkey] %wZ\n", subKeyName);
+
+		status = ZwOpenKey(&hSubKey, KEY_ALL_ACCESS, &subKeyAttributes);
+		if (!NT_SUCCESS(status)) {
+			// 에러 처리
+			continue;
+		}
+
+		// 하위 키 백업
+		// ...
+
+		// 하위 키 닫기
+		ZwClose(hSubKey);
+	}
+
+
+}
 void getRegValue(PUNICODE_STRING keyName, PUNICODE_STRING valueName)
 {
 	//UNICODE_STRING keyName;
@@ -248,6 +420,51 @@ void getRegValue(PUNICODE_STRING keyName, PUNICODE_STRING valueName)
 		ZwClose(keyHandle);
 	}
 }
+
+
+NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath*/)
+{
+	OBJECT_ATTRIBUTES keyAttributes;
+	OBJECT_ATTRIBUTES backupAttributes;
+	IO_STATUS_BLOCK ioStatusBlock;
+	HANDLE keyHandle = NULL;
+	HANDLE backupHandle = NULL;
+	NTSTATUS status = STATUS_SUCCESS;
+	UNICODE_STRING backupPath;
+
+	InitializeObjectAttributes(&keyAttributes, keyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwCreateKey(&keyHandle, KEY_READ, &keyAttributes, 0, NULL, REG_OPTION_BACKUP_RESTORE, NULL);
+	if (!NT_SUCCESS(status))
+	{
+		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "Failed to create registry key handle, error: %x\n", status);
+		return status;
+	}
+
+	RtlInitUnicodeString(&backupPath, L"\\??\\C:\\users\\option\\regfile.reg");
+	InitializeObjectAttributes(&backupAttributes, &backupPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwCreateFile(&backupHandle, GENERIC_WRITE | SYNCHRONIZE, &backupAttributes, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+	if (!NT_SUCCESS(status))
+	{
+		ZwClose(keyHandle);
+		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "Failed to create backup file handle, error: %x\n", status);
+		return status;
+	}
+
+	status = ZwSaveKey(keyHandle, backupHandle);
+	if (!NT_SUCCESS(status))
+	{
+		ZwClose(keyHandle);
+		ZwClose(backupHandle);
+		DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "Failed to save registry key to backup file, error: %x\n", status);
+		return status;
+	}
+
+	ZwClose(keyHandle);
+	ZwClose(backupHandle);
+
+	return STATUS_SUCCESS;
+}
+
 
 NTSTATUS InstallRegMonitor(IN PDRIVER_OBJECT DriverObject)
 {
