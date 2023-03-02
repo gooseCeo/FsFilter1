@@ -1,10 +1,17 @@
 #include "stdio.h"
 #include <ntifs.h>
 #include "regfltr.h"
+#include <ntddk.h>
+#include <tchar.h>
 
+#define MAX_KEY_LENGTH 256
+
+UNICODE_STRING ParseRegistryKey(PUNICODE_STRING registryKey);
+NTSTATUS RegisterRegistryKey(PUNICODE_STRING valueName, PUNICODE_STRING data);
+NTSTATUS GetProcessIdString(OUT PUNICODE_STRING ProcessIdString);
 void getRegValue();
 void getRegList(PUNICODE_STRING keyName);
-NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath*/);
+NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath, PLARGE_INTEGER microtime);
 
 typedef struct _GLOBAL_CONTEXT {
 	PDRIVER_OBJECT DriverObject;
@@ -230,13 +237,16 @@ NTSTATUS RegistryFilterCallback(
 	REG_NOTIFY_CLASS NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 	PUNICODE_STRING RootObjectName;
 	ULONG_PTR RootObjectID;	
-
+	UNICODE_STRING valueName;
+	//UNICODE_STRING data;
+	WCHAR microtime[20] = { 0 };
+	LARGE_INTEGER currentTime;
 	CallbackCtx = (PCALLBACK_CONTEXT)CallbackContext;
 	NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
 	HANDLE pid = PsGetCurrentProcessId();
 
-	if ((ULONGLONG)pid != 5272) return STATUS_SUCCESS;
+	if ((ULONGLONG)pid != 5252) return STATUS_SUCCESS;
 
 
 	if (Argument2 == NULL ) {
@@ -261,8 +271,7 @@ NTSTATUS RegistryFilterCallback(
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
 		{
 			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->NewName);
-		}
-		
+		}		
 	}	
 	/*
 	else if (RegNtPreCreateKeyEx == NotifyClass)
@@ -282,7 +291,18 @@ NTSTATUS RegistryFilterCallback(
 			DbgPrint("[dmjoo:delete] %wZ\n", RootObjectName);			
 		}
 		//getRegList(RootObjectName);
-		BackupRegistryKey(RootObjectName);
+		
+
+		
+
+		// Get the current time
+		KeQuerySystemTimePrecise(&currentTime);
+		DbgPrint("[dmjoo:time] %llu\n", currentTime.QuadPart);
+		swprintf_s(microtime, 20, L"%llu", currentTime.QuadPart);
+
+		RtlInitUnicodeString(&valueName, microtime);
+		RegisterRegistryKey(&valueName, RootObjectName);
+		BackupRegistryKey(RootObjectName, &currentTime);
 	}
 	else if (RegNtDeleteValueKey == NotifyClass) {
 		PREG_DELETE_VALUE_KEY_INFORMATION RegInformation = (PREG_DELETE_VALUE_KEY_INFORMATION)Argument2;
@@ -421,8 +441,86 @@ void getRegValue(PUNICODE_STRING keyName, PUNICODE_STRING valueName)
 	}
 }
 
+#include <ntifs.h>
 
-NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath*/)
+
+#include <wdm.h>
+
+LONGLONG printMicroTime()
+{
+	LARGE_INTEGER currentTime;
+
+	// Get the current time
+	KeQuerySystemTimePrecise(&currentTime);
+
+	return currentTime.QuadPart;
+}
+
+NTSTATUS RegisterRegistryKey(PUNICODE_STRING valueName, PUNICODE_STRING data)
+{
+	NTSTATUS status;
+	OBJECT_ATTRIBUTES objectAttributes;
+	HANDLE hKey;
+	//UNICODE_STRING valueName;
+	//UNICODE_STRING data;
+	HANDLE processIdHandle = PsGetCurrentProcessId();
+	
+	
+	UNICODE_STRING g_RegistryPath;// = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\goose\\");
+	
+	WCHAR processIdString[MAX_KEY_LENGTH] = { 0 };
+	
+	swprintf_s(processIdString, MAX_KEY_LENGTH, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\goose\\%llu",(ULONGLONG)processIdHandle);
+	
+	
+	RtlInitUnicodeString(&g_RegistryPath, processIdString);
+	
+	
+	DbgPrint("[dmjoo] [%wZ]\n", g_RegistryPath);
+	// 레지스트리 키 생성
+	InitializeObjectAttributes(&objectAttributes, &g_RegistryPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+	status = ZwCreateKey(&hKey, KEY_ALL_ACCESS, &objectAttributes, 0, NULL, 0, NULL);
+	if (!NT_SUCCESS(status))
+	{
+		return status;
+	}
+
+	// 레지스트리 값 설정
+
+	//RtlInitUnicodeString(&data, L"C:\\MyDriver.sys");
+	status = ZwSetValueKey(hKey, valueName, 0, REG_SZ, data->Buffer, data->Length);
+	if (!NT_SUCCESS(status))
+	{
+		ZwClose(hKey);
+		return status;
+	}
+
+	// 레지스트리 키 닫기
+	ZwClose(hKey);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS GetProcessIdString(OUT PUNICODE_STRING ProcessIdString)
+{
+	HANDLE processIdHandle = PsGetCurrentProcessId();
+	WCHAR buffer[10]; // PID는 최대 5자리까지만 가능하므로 10바이트로 충분합니다.
+	NTSTATUS status;
+
+	// PID 값을 문자열로 변환합니다.
+	status = RtlStringCchPrintfW(buffer, 10, L"%lu", (ULONGLONG)processIdHandle);
+	if (!NT_SUCCESS(status))
+	{
+		return status;
+	}
+
+	// UNICODE_STRING 구조체를 초기화합니다.
+	RtlInitUnicodeString(ProcessIdString, buffer);
+	DbgPrint("[dmjoo]RegistryPath PID: %wZ\n", ProcessIdString);
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath,PLARGE_INTEGER  microtime)
 {
 	OBJECT_ATTRIBUTES keyAttributes;
 	OBJECT_ATTRIBUTES backupAttributes;
@@ -431,7 +529,7 @@ NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath
 	HANDLE backupHandle = NULL;
 	NTSTATUS status = STATUS_SUCCESS;
 	UNICODE_STRING backupPath;
-
+	WCHAR buffer[64];
 	InitializeObjectAttributes(&keyAttributes, keyPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
 	status = ZwCreateKey(&keyHandle, KEY_READ, &keyAttributes, 0, NULL, REG_OPTION_BACKUP_RESTORE, NULL);
 	if (!NT_SUCCESS(status))
@@ -440,7 +538,11 @@ NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath/*, PUNICODE_STRING backupPath
 		return status;
 	}
 
-	RtlInitUnicodeString(&backupPath, L"\\??\\C:\\users\\option\\regfile.reg");
+	swprintf_s(buffer, 64, L"\\??\\C:\\users\\goose\\%llu.reg", microtime->QuadPart);
+	RtlInitUnicodeString(&backupPath, buffer);
+
+	DbgPrint("[dmjoo:backuppath] %wZ\n", backupPath);
+
 	InitializeObjectAttributes(&backupAttributes, &backupPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
 	status = ZwCreateFile(&backupHandle, GENERIC_WRITE | SYNCHRONIZE, &backupAttributes, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 	if (!NT_SUCCESS(status))
