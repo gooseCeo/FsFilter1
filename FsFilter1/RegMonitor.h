@@ -5,13 +5,14 @@
 #include <tchar.h>
 
 #define MAX_KEY_LENGTH 256
-
+void countRegList(PHANDLE hkey);
 UNICODE_STRING ParseRegistryKey(PUNICODE_STRING registryKey);
 NTSTATUS RegisterRegistryKey(PUNICODE_STRING valueName, PUNICODE_STRING data);
 NTSTATUS GetProcessIdString(OUT PUNICODE_STRING ProcessIdString);
 void getRegValue();
-void getRegList(PUNICODE_STRING keyName);
+NTSTATUS getRegList(PUNICODE_STRING keyName);
 NTSTATUS BackupRegistryKey(PUNICODE_STRING keyPath, PLARGE_INTEGER microtime);
+NTSTATUS EnumerateValueNames(PUNICODE_STRING RegistryKey);
 
 typedef struct _GLOBAL_CONTEXT {
 	PDRIVER_OBJECT DriverObject;
@@ -227,6 +228,8 @@ Return Value:
 	}
 }
 
+PLARGE_INTEGER g_CmCookie;
+
 NTSTATUS RegistryFilterCallback(
 	IN PVOID               CallbackContext,
 	IN PVOID               Argument1,
@@ -245,8 +248,9 @@ NTSTATUS RegistryFilterCallback(
 	NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 
 	HANDLE pid = PsGetCurrentProcessId();
+	UNICODE_STRING RegistryKey;
 
-	if ((ULONGLONG)pid != 5252) return STATUS_SUCCESS;
+	if ((ULONGLONG)pid != 10492) return STATUS_SUCCESS;
 
 
 	if (Argument2 == NULL ) {
@@ -271,6 +275,14 @@ NTSTATUS RegistryFilterCallback(
 		if (NT_SUCCESS(Status = CmCallbackGetKeyObjectID(&g_GlobalContext.Cookie, RegInformation->Object, &RootObjectID, &RootObjectName)))
 		{
 			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->NewName);
+
+			//getRegList(RootObjectName);
+
+
+			RtlInitUnicodeString(&RegistryKey, L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\FuzzyDS");
+			
+			//EnumerateValueNames(&RegistryKey);
+			EnumerateValueNames(RootObjectName);
 		}		
 	}	
 	/*
@@ -337,73 +349,160 @@ NTSTATUS RegistryFilterCallback(
 	*/
 	return Status;
 }
-
-void getRegList(PUNICODE_STRING keyName)
+void countRegList(PHANDLE hkey)
 {
-	//UNICODE_STRING keyName;
-	OBJECT_ATTRIBUTES attributes;
-	HANDLE hKey;
 	NTSTATUS status;
-	//ULONG subKeyCount;
 	KEY_FULL_INFORMATION keyInfo;
 	ULONG rLength;
-	// 백업할 레지스트리 키 이름
-	//RtlInitUnicodeString(&keyName, L"\\Registry\\Machine\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
-
-	// 레지스트리 키 열기
-	InitializeObjectAttributes(&attributes, keyName, OBJ_CASE_INSENSITIVE, NULL, NULL);
-	status = ZwOpenKey(&hKey, KEY_ALL_ACCESS, &attributes);
-	if (!NT_SUCCESS(status)) {
-		// 에러 처리
+	status = ZwQueryKey(hkey, KeyFullInformation, &keyInfo, sizeof(keyInfo), &rLength);
+	if (NT_SUCCESS(status)) {
+		DbgPrint("[dmjoo:subkeys] %d\n", keyInfo.SubKeys);
 	}
-
-	// 하위 키 수 가져오기
-	//status = ZwQueryKey(hKey, KeyFullInformation, NULL, 0, &subKeyCount);
-	//if (!NT_SUCCESS(status)) {
-		// 에러 처리
-	//}
-	status = ZwQueryKey(hKey, KeyFullInformation, &keyInfo, sizeof(keyInfo), &rLength);
-	if (!NT_SUCCESS(status)) {
-		// 에러 처리
-	}
-
-	DbgPrint("[dmjoo:subkeycount] %d : %d : %d\n", keyInfo.SubKeys, rLength, sizeof(keyInfo));
-	// 하위 키 수만큼 반복하여 각 하위 키 백업
-	for (ULONG i = 0; i < keyInfo.SubKeys; i++) {
-		// 하위 키 이름 가져오기
-		WCHAR subKeyNameBuffer[256];
-		ULONG subKeyNameLength;
-		status = ZwEnumerateKey(hKey, i, KeyBasicInformation, subKeyNameBuffer, sizeof(subKeyNameBuffer), &subKeyNameLength);
-		if (!NT_SUCCESS(status)) {
-			// 에러 처리
-			DbgPrint("[dmjoo:subkey] error %d\n", status);
-			continue;
-		}
-
-		// 하위 키 열기
-		OBJECT_ATTRIBUTES subKeyAttributes;
-		HANDLE hSubKey;
-		UNICODE_STRING subKeyName;
-		RtlInitUnicodeString(&subKeyName, subKeyNameBuffer);
-		InitializeObjectAttributes(&subKeyAttributes, &subKeyName, OBJ_CASE_INSENSITIVE, hKey, NULL);
-		
-		DbgPrint("[dmjoo:subkey] %wZ\n", subKeyName);
-
-		status = ZwOpenKey(&hSubKey, KEY_ALL_ACCESS, &subKeyAttributes);
-		if (!NT_SUCCESS(status)) {
-			// 에러 처리
-			continue;
-		}
-
-		// 하위 키 백업
-		// ...
-
-		// 하위 키 닫기
-		ZwClose(hSubKey);
-	}
-
-
 }
+
+
+NTSTATUS getRegList(PUNICODE_STRING keyName)
+{
+	NTSTATUS status;
+	HANDLE hKey;
+	PKEY_FULL_INFORMATION pInfo = NULL;
+	ULONG ulInfoSize = 0;
+	OBJECT_ATTRIBUTES objectAttributes;
+	UNICODE_STRING uKeyName;
+	//KEY_BASIC_INFORMATION keyInfo;
+
+	UNREFERENCED_PARAMETER(keyName);
+
+	RtlInitUnicodeString(&uKeyName, L"\\Registry\\Machine\\SOFTWARE\\ODBC");
+
+	InitializeObjectAttributes(&objectAttributes, &uKeyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+
+	// 레지스트리 키 오픈
+	status = ZwOpenKey(&hKey, KEY_ALL_ACCESS, &objectAttributes);
+	if (!NT_SUCCESS(status))
+	{
+		DbgPrint("[dmjoo:subkeys]Failed to open registry key. Error code: 0x%X\n", status);
+		return status;
+	}
+
+	// KeyFullInformation 구조체를 저장할 메모리 할당
+	status = ZwQueryKey(hKey, KeyFullInformation, NULL, 0, &ulInfoSize);
+	if (status != STATUS_BUFFER_TOO_SMALL)
+	{
+		DbgPrint("[dmjoo:subkeys]Failed to query key information size. Error code: 0x%X\n", status);
+		ZwClose(hKey);
+		return status;
+	}
+
+	pInfo = (PKEY_FULL_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, ulInfoSize, 'mytg');
+	if (pInfo == NULL)
+	{
+		DbgPrint("[dmjoo:subkeys]Failed to allocate memory for key information.\n");
+		ZwClose(hKey);
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	// KeyFullInformation 구조체에 정보를 채움
+	status = ZwQueryKey(hKey, KeyFullInformation, pInfo, ulInfoSize, &ulInfoSize);
+	if (!NT_SUCCESS(status))
+	{
+		DbgPrint("[dmjoo:subkeys]Failed to query key information. Error code: 0x%X\n", status);
+		ExFreePoolWithTag(pInfo, 'mytg');
+		ZwClose(hKey);
+		return status;
+	}
+	DbgPrint("[dmjoo:subkeys]%d\n", pInfo->SubKeys);
+	// 하위 키 정보 출력
+	if (pInfo->SubKeys > 0)
+	{
+		PKEY_BASIC_INFORMATION pSubInfo = (PKEY_BASIC_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, pInfo->MaxNameLen, 'mytg');
+		if (pSubInfo == NULL)
+		{
+			DbgPrint("Failed to allocate memory for subkey information.\n");
+			ExFreePoolWithTag(pInfo, 'mytg');
+			ZwClose(hKey);
+		}
+
+		for (ULONG i = 0; i < pInfo->SubKeys; i++)
+		{
+			status = ZwEnumerateKey(hKey, i, KeyBasicInformation, pSubInfo, pInfo->MaxNameLen, &ulInfoSize);
+			if (!NT_SUCCESS(status))
+			{
+				DbgPrint("[dmjoo:subkeys]Failed to enumerate subkey. Error code: 0x%X\n", status);
+				continue;
+			}
+
+			DbgPrint("[dmjoo]Subkey name: %S\n", &pSubInfo->Name);
+		}
+
+		ExFreePoolWithTag(pSubInfo, 'mytg');
+		ExFreePoolWithTag(pInfo, 'mytg');
+		ZwClose(hKey);
+	}
+
+	return status;
+}
+#include <fltKernel.h>
+#include <dontuse.h>
+#include <suppress.h>
+#include <stdio.h>
+
+#define BUFFER_SIZE 1024
+
+NTSTATUS EnumerateValueNames(PUNICODE_STRING RegistryPath)
+{
+	OBJECT_ATTRIBUTES objAttr;
+	HANDLE hKey;
+	//UNICODE_STRING uValueName;
+	NTSTATUS status;
+	UCHAR buffer[1024];
+	PKEY_VALUE_FULL_INFORMATION pKeyInfo = (PKEY_VALUE_FULL_INFORMATION)buffer;
+	ULONG length;
+	WCHAR sChar;
+	int i = 0;
+	InitializeObjectAttributes(&objAttr, RegistryPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+	status = ZwOpenKey(&hKey, KEY_READ, &objAttr);
+
+	if (!NT_SUCCESS(status))
+	{
+		KdPrint(("[dmjoo]ZwOpenKey failed. status = 0x%08x\n", status));
+		return status;
+	}
+
+	while (TRUE)
+	{
+		status = ZwEnumerateValueKey(hKey, i++, KeyValueFullInformation, pKeyInfo, sizeof(buffer), &length);
+
+		if (status == STATUS_NO_MORE_ENTRIES)
+		{
+			KdPrint(("[dmjoo]EnumerateValueNames: no more value entries.\n"));
+			break;
+		}
+
+		if (!NT_SUCCESS(status))
+		{
+			KdPrint(("[dmjoo]ZwEnumerateValueKey failed. status = 0x%08x\n", status));
+			break;
+		}
+
+		// pKeyInfo->NameLength does not include null terminator.
+		PWSTR  pValue = (PWSTR)((PUCHAR)pKeyInfo + pKeyInfo->DataOffset);
+		pValue[pKeyInfo->DataLength] = L'\0';
+		PWSTR pKeyName = (PWSTR)(pKeyInfo->Name);	
+		sChar = pKeyName[pKeyInfo->NameLength / sizeof(WCHAR)];
+		pKeyName[pKeyInfo->NameLength / sizeof(WCHAR)] = L'\0';
+		KdPrint(("[dmjoo]Value name: [%ld] [%S]\n",pKeyInfo->Type,  pKeyName));
+		pKeyName[pKeyInfo->NameLength / sizeof(WCHAR)] = sChar;
+		KdPrint(("[dmjoo]Value data: [%ld] [%S]\n", pKeyInfo->Type, pValue));
+	}
+
+	ZwClose(hKey);
+	return status;
+}
+
+
+
 void getRegValue(PUNICODE_STRING keyName, PUNICODE_STRING valueName)
 {
 	//UNICODE_STRING keyName;
