@@ -16,10 +16,15 @@ Environment:
 
 #include <fltKernel.h>
 #include <dontuse.h>
+#include <ntifs.h>
+
 #include "RegMonitor.h"
 
 #pragma prefast(disable:__WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
+ULONG g_processnameoffset = 0;
+void initProcess();
+int getProcName(PEPROCESS pProcess, PCHAR procName);
 
 PFLT_FILTER gFilterHandle;
 ULONG_PTR OperationStatusCtx = 1;
@@ -43,48 +48,48 @@ EXTERN_C_START
 
 DRIVER_INITIALIZE DriverEntry;
 NTSTATUS
-DriverEntry (
+DriverEntry(
     _In_ PDRIVER_OBJECT DriverObject,
     _In_ PUNICODE_STRING RegistryPath
-    );
+);
 
 NTSTATUS
-FsFilter1InstanceSetup (
+FsFilter1InstanceSetup(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_SETUP_FLAGS Flags,
     _In_ DEVICE_TYPE VolumeDeviceType,
     _In_ FLT_FILESYSTEM_TYPE VolumeFilesystemType
-    );
+);
 
 VOID
-FsFilter1InstanceTeardownStart (
+FsFilter1InstanceTeardownStart(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags
-    );
+);
 
 VOID
-FsFilter1InstanceTeardownComplete (
+FsFilter1InstanceTeardownComplete(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags
-    );
+);
 
 NTSTATUS
-FsFilter1Unload (
+FsFilter1Unload(
     _In_ FLT_FILTER_UNLOAD_FLAGS Flags
-    );
+);
 
 NTSTATUS
-FsFilter1InstanceQueryTeardown (
+FsFilter1InstanceQueryTeardown(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags
-    );
+);
 
 FLT_PREOP_CALLBACK_STATUS
-FsFilter1PreOperation (
+FsFilter1PreOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
-    _Flt_CompletionContext_Outptr_ PVOID *CompletionContext
-    );
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+);
 
 FLT_PREOP_CALLBACK_STATUS
 FsFilter1PreOperation2(
@@ -94,32 +99,32 @@ FsFilter1PreOperation2(
 );
 
 VOID
-FsFilter1OperationStatusCallback (
+FsFilter1OperationStatusCallback(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ PFLT_IO_PARAMETER_BLOCK ParameterSnapshot,
     _In_ NTSTATUS OperationStatus,
     _In_ PVOID RequesterContext
-    );
+);
 
 FLT_POSTOP_CALLBACK_STATUS
-FsFilter1PostOperation (
+FsFilter1PostOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_opt_ PVOID CompletionContext,
     _In_ FLT_POST_OPERATION_FLAGS Flags
-    );
+);
 
 FLT_PREOP_CALLBACK_STATUS
-FsFilter1PreOperationNoPostOperation (
+FsFilter1PreOperationNoPostOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
-    _Flt_CompletionContext_Outptr_ PVOID *CompletionContext
-    );
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+);
 
 BOOLEAN
 FsFilter1DoRequestOperationStatus(
     _In_ PFLT_CALLBACK_DATA Data
-    );
+);
 
 EXTERN_C_END
 
@@ -353,7 +358,7 @@ CONST FLT_OPERATION_REGISTRATION Callbacks[] = {
 
 CONST FLT_REGISTRATION FilterRegistration = {
 
-    sizeof( FLT_REGISTRATION ),         //  Size
+    sizeof(FLT_REGISTRATION),         //  Size
     FLT_REGISTRATION_VERSION,           //  Version
     0,                                  //  Flags
 
@@ -376,12 +381,12 @@ CONST FLT_REGISTRATION FilterRegistration = {
 
 
 NTSTATUS
-FsFilter1InstanceSetup (
+FsFilter1InstanceSetup(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_SETUP_FLAGS Flags,
     _In_ DEVICE_TYPE VolumeDeviceType,
     _In_ FLT_FILESYSTEM_TYPE VolumeFilesystemType
-    )
+)
 /*++
 
 Routine Description:
@@ -406,25 +411,25 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( Flags );
-    UNREFERENCED_PARAMETER( VolumeDeviceType );
-    UNREFERENCED_PARAMETER( VolumeFilesystemType );
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(Flags);
+    UNREFERENCED_PARAMETER(VolumeDeviceType);
+    UNREFERENCED_PARAMETER(VolumeFilesystemType);
 
     PAGED_CODE();
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1InstanceSetup: Entered\n") );
-    
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1InstanceSetup: Entered\n"));
+
     return STATUS_SUCCESS;
 }
 
 
 NTSTATUS
-FsFilter1InstanceQueryTeardown (
+FsFilter1InstanceQueryTeardown(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags
-    )
+)
 /*++
 
 Routine Description:
@@ -450,23 +455,23 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( Flags );
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(Flags);
 
     PAGED_CODE();
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1InstanceQueryTeardown: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1InstanceQueryTeardown: Entered\n"));
 
     return STATUS_SUCCESS;
 }
 
 
 VOID
-FsFilter1InstanceTeardownStart (
+FsFilter1InstanceTeardownStart(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags
-    )
+)
 /*++
 
 Routine Description:
@@ -486,21 +491,21 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( Flags );
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(Flags);
 
     PAGED_CODE();
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1InstanceTeardownStart: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1InstanceTeardownStart: Entered\n"));
 }
 
 
 VOID
-FsFilter1InstanceTeardownComplete (
+FsFilter1InstanceTeardownComplete(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags
-    )
+)
 /*++
 
 Routine Description:
@@ -520,13 +525,13 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( Flags );
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(Flags);
 
     PAGED_CODE();
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1InstanceTeardownComplete: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1InstanceTeardownComplete: Entered\n"));
 }
 
 
@@ -535,10 +540,10 @@ Return Value:
 *************************************************************************/
 
 NTSTATUS
-DriverEntry (
+DriverEntry(
     _In_ PDRIVER_OBJECT DriverObject,
     _In_ PUNICODE_STRING RegistryPath
-    )
+)
 /*++
 
 Routine Description:
@@ -562,34 +567,35 @@ Return Value:
 {
     NTSTATUS status;
 
-    UNREFERENCED_PARAMETER( RegistryPath );
+    UNREFERENCED_PARAMETER(RegistryPath);
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!DriverEntry: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!DriverEntry: Entered\n"));
 
+    initProcess();
     InstallRegMonitor(DriverObject);
     //
     //  Register with FltMgr to tell it our callback routines
     //
 
-    status = FltRegisterFilter( DriverObject,
-                                &FilterRegistration,
-                                &gFilterHandle );
+    status = FltRegisterFilter(DriverObject,
+        &FilterRegistration,
+        &gFilterHandle);
 
-    FLT_ASSERT( NT_SUCCESS( status ) );
+    FLT_ASSERT(NT_SUCCESS(status));
 
-    if (NT_SUCCESS( status )) {
+    if (NT_SUCCESS(status)) {
 
         //
         //  Start filtering i/o
         //
-        DbgPrint("[dmjoo] driver entry\n");
+        DbgPrint("[dmjoo] driver entry start!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 
-        status = FltStartFiltering( gFilterHandle );
+        status = FltStartFiltering(gFilterHandle);
 
-        if (!NT_SUCCESS( status )) {
+        if (!NT_SUCCESS(status)) {
 
-            FltUnregisterFilter( gFilterHandle );
+            FltUnregisterFilter(gFilterHandle);
         }
     }
 
@@ -597,9 +603,9 @@ Return Value:
 }
 
 NTSTATUS
-FsFilter1Unload (
+FsFilter1Unload(
     _In_ FLT_FILTER_UNLOAD_FLAGS Flags
-    )
+)
 /*++
 
 Routine Description:
@@ -619,16 +625,16 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( Flags );
+    UNREFERENCED_PARAMETER(Flags);
 
     PAGED_CODE();
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1Unload: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1Unload: Entered\n"));
 
     UnInstallRegMonitor();
 
-    FltUnregisterFilter( gFilterHandle );
+    FltUnregisterFilter(gFilterHandle);
 
     return STATUS_SUCCESS;
 }
@@ -638,11 +644,11 @@ Return Value:
     MiniFilter callback routines.
 *************************************************************************/
 FLT_PREOP_CALLBACK_STATUS
-FsFilter1PreOperation (
+FsFilter1PreOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
-    _Flt_CompletionContext_Outptr_ PVOID *CompletionContext
-    )
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+)
 /*++
 
 Routine Description:
@@ -670,11 +676,11 @@ Return Value:
 {
     NTSTATUS status;
 
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( CompletionContext );
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1PreOperation: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1PreOperation: Entered\n"));
 
     //
     //  See if this is an operation we would like the operation status
@@ -685,16 +691,16 @@ Return Value:
     //        actually granted.
     //
 
-    if (FsFilter1DoRequestOperationStatus( Data )) {
+    if (FsFilter1DoRequestOperationStatus(Data)) {
 
-        status = FltRequestOperationStatusCallback( Data,
-                                                    FsFilter1OperationStatusCallback,
-                                                    (PVOID)(++OperationStatusCtx) );
+        status = FltRequestOperationStatusCallback(Data,
+            FsFilter1OperationStatusCallback,
+            (PVOID)(++OperationStatusCtx));
         if (!NT_SUCCESS(status)) {
 
-            PT_DBG_PRINT( PTDBG_TRACE_OPERATION_STATUS,
-                          ("FsFilter1!FsFilter1PreOperation: FltRequestOperationStatusCallback Failed, status=%08x\n",
-                           status) );
+            PT_DBG_PRINT(PTDBG_TRACE_OPERATION_STATUS,
+                ("FsFilter1!FsFilter1PreOperation: FltRequestOperationStatusCallback Failed, status=%08x\n",
+                    status));
         }
     }
 
@@ -708,12 +714,12 @@ Return Value:
 
 
 VOID
-FsFilter1OperationStatusCallback (
+FsFilter1OperationStatusCallback(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ PFLT_IO_PARAMETER_BLOCK ParameterSnapshot,
     _In_ NTSTATUS OperationStatus,
     _In_ PVOID RequesterContext
-    )
+)
 /*++
 
 Routine Description:
@@ -747,28 +753,28 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( FltObjects );
+    UNREFERENCED_PARAMETER(FltObjects);
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1OperationStatusCallback: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1OperationStatusCallback: Entered\n"));
 
-    PT_DBG_PRINT( PTDBG_TRACE_OPERATION_STATUS,
-                  ("FsFilter1!FsFilter1OperationStatusCallback: Status=%08x ctx=%p IrpMj=%02x.%02x \"%s\"\n",
-                   OperationStatus,
-                   RequesterContext,
-                   ParameterSnapshot->MajorFunction,
-                   ParameterSnapshot->MinorFunction,
-                   FltGetIrpName(ParameterSnapshot->MajorFunction)) );
+    PT_DBG_PRINT(PTDBG_TRACE_OPERATION_STATUS,
+        ("FsFilter1!FsFilter1OperationStatusCallback: Status=%08x ctx=%p IrpMj=%02x.%02x \"%s\"\n",
+            OperationStatus,
+            RequesterContext,
+            ParameterSnapshot->MajorFunction,
+            ParameterSnapshot->MinorFunction,
+            FltGetIrpName(ParameterSnapshot->MajorFunction)));
 }
 
 
 FLT_POSTOP_CALLBACK_STATUS
-FsFilter1PostOperation (
+FsFilter1PostOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_opt_ PVOID CompletionContext,
     _In_ FLT_POST_OPERATION_FLAGS Flags
-    )
+)
 /*++
 
 Routine Description:
@@ -796,24 +802,24 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( Data );
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( CompletionContext );
-    UNREFERENCED_PARAMETER( Flags );
+    UNREFERENCED_PARAMETER(Data);
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
+    UNREFERENCED_PARAMETER(Flags);
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1PostOperation: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1PostOperation: Entered\n"));
 
     return FLT_POSTOP_FINISHED_PROCESSING;
 }
 
 
 FLT_PREOP_CALLBACK_STATUS
-FsFilter1PreOperationNoPostOperation (
+FsFilter1PreOperationNoPostOperation(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
-    _Flt_CompletionContext_Outptr_ PVOID *CompletionContext
-    )
+    _Flt_CompletionContext_Outptr_ PVOID* CompletionContext
+)
 /*++
 
 Routine Description:
@@ -839,12 +845,12 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER( Data );
-    UNREFERENCED_PARAMETER( FltObjects );
-    UNREFERENCED_PARAMETER( CompletionContext );
+    UNREFERENCED_PARAMETER(Data);
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
 
-    PT_DBG_PRINT( PTDBG_TRACE_ROUTINES,
-                  ("FsFilter1!FsFilter1PreOperationNoPostOperation: Entered\n") );
+    PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
+        ("FsFilter1!FsFilter1PreOperationNoPostOperation: Entered\n"));
 
     // This template code does not do anything with the callbackData, but
     // rather returns FLT_PREOP_SUCCESS_NO_CALLBACK.
@@ -857,7 +863,7 @@ Return Value:
 BOOLEAN
 FsFilter1DoRequestOperationStatus(
     _In_ PFLT_CALLBACK_DATA Data
-    )
+)
 /*++
 
 Routine Description:
@@ -883,25 +889,25 @@ Return Value:
 
     return (BOOLEAN)
 
-            //
-            //  Check for oplock operations
-            //
+        //
+        //  Check for oplock operations
+        //
 
-             (((iopb->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
-               ((iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_FILTER_OPLOCK)  ||
-                (iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_BATCH_OPLOCK)   ||
+        (((iopb->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
+            ((iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_FILTER_OPLOCK) ||
+                (iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_BATCH_OPLOCK) ||
                 (iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_OPLOCK_LEVEL_1) ||
                 (iopb->Parameters.FileSystemControl.Common.FsControlCode == FSCTL_REQUEST_OPLOCK_LEVEL_2)))
 
-              ||
+            ||
 
-              //
-              //    Check for directy change notification
-              //
+            //
+            //    Check for directy change notification
+            //
 
-              ((iopb->MajorFunction == IRP_MJ_DIRECTORY_CONTROL) &&
-               (iopb->MinorFunction == IRP_MN_NOTIFY_CHANGE_DIRECTORY))
-             );
+            ((iopb->MajorFunction == IRP_MJ_DIRECTORY_CONTROL) &&
+                (iopb->MinorFunction == IRP_MN_NOTIFY_CHANGE_DIRECTORY))
+            );
 }
 
 /*************************************************************************
@@ -960,57 +966,57 @@ Return Value:
         DbgPrint("[dmjoo] %S\n", FltObjects->FileObject->FileName.Buffer);
     }
 
-        if (FltObjects->FileObject->FileName.Buffer != NULL && wcsstr(FltObjects->FileObject->FileName.Buffer, L"\\Registry") != NULL)
+    if (FltObjects->FileObject->FileName.Buffer != NULL && wcsstr(FltObjects->FileObject->FileName.Buffer, L"\\Registry") != NULL)
+    {
+        UNICODE_STRING strKey = { 0 };
+        strKey.Length = strKey.MaximumLength = (USHORT)FltObjects->FileObject->FileName.Length;
+        strKey.Buffer = FltObjects->FileObject->FileName.Buffer;
+
+        DbgPrint("[dmjoo] %S: ", FltObjects->FileObject->FileName.Buffer);
+        if (wcsstr(strKey.Buffer, L"HKLM") != NULL || wcsstr(strKey.Buffer, L"HKCU") != NULL)
         {
-            UNICODE_STRING strKey = { 0 };
-            strKey.Length = strKey.MaximumLength = (USHORT)FltObjects->FileObject->FileName.Length;
-            strKey.Buffer = FltObjects->FileObject->FileName.Buffer;
-            
-            DbgPrint("[dmjoo] %S: ", FltObjects->FileObject->FileName.Buffer);
-            if (wcsstr(strKey.Buffer, L"HKLM") != NULL || wcsstr(strKey.Buffer, L"HKCU") != NULL)
+            DbgPrint("[dmjoo registry] %S\n", strKey.Buffer);
+            /*
+            PFLT_SET_INFORMATION_REQUEST pSetRequest = (PFLT_SET_INFORMATION_REQUEST)Data->Iopb->Parameters.SetFileInformation.InfoBuffer;
+            if (pSetRequest != NULL && pSetRequest->FileSystemInformationClass == FileFsControlInformation)
             {
-                DbgPrint("[dmjoo registry] %S\n", strKey.Buffer);
-                /*
-                PFLT_SET_INFORMATION_REQUEST pSetRequest = (PFLT_SET_INFORMATION_REQUEST)Data->Iopb->Parameters.SetFileInformation.InfoBuffer;
-                if (pSetRequest != NULL && pSetRequest->FileSystemInformationClass == FileFsControlInformation)
+                FILE_FS_CONTROL_INFORMATION* pFsControlInfo = (FILE_FS_CONTROL_INFORMATION*)pSetRequest->Buffer;
+
+                if (pFsControlInfo->ControlCode == FSCTL_SET_REPARSE_POINT)
                 {
-                    FILE_FS_CONTROL_INFORMATION* pFsControlInfo = (FILE_FS_CONTROL_INFORMATION*)pSetRequest->Buffer;
+                    REPARSE_GUID_DATA_BUFFER* pReparseData = (REPARSE_GUID_DATA_BUFFER*)pFsControlInfo->Buffer;
 
-                    if (pFsControlInfo->ControlCode == FSCTL_SET_REPARSE_POINT)
+                    // 키 및 값 이름 가져오기
+                    UNICODE_STRING strKeyName, strValueName;
+                    RtlInitUnicodeString(&strKeyName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset);
+                    RtlInitUnicodeString(&strValueName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset + strKeyName.Length + sizeof(WCHAR));
+
+                    // 변경 전후의 값을 가져오기
+                    BYTE* pOldData = pReparseData->GenericReparseBuffer.DataBuffer;
+                    DWORD dwOldDataSize = pReparseData->GenericReparseBuffer.DataBufferLength;
+                    BYTE* pNewData = pSetRequest->Buffer + sizeof(FILE_FS_CONTROL_INFORMATION);
+                    DWORD dwNewDataSize = pSetRequest->Length - sizeof(FILE_FS_CONTROL_INFORMATION);
+
+                    // 변경 내용 출력
+                    DbgPrint("Registry key/value modified: %wZ\\%wZ\n", &strKeyName, &strValueName);
+                    DbgPrint("Old data: ");
+                    for (DWORD i = 0; i < dwOldDataSize; i++)
                     {
-                        REPARSE_GUID_DATA_BUFFER* pReparseData = (REPARSE_GUID_DATA_BUFFER*)pFsControlInfo->Buffer;
-
-                        // 키 및 값 이름 가져오기
-                        UNICODE_STRING strKeyName, strValueName;
-                        RtlInitUnicodeString(&strKeyName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset);
-                        RtlInitUnicodeString(&strValueName, pReparseData->SymbolicLinkReparseBuffer.PathBuffer + pReparseData->SymbolicLinkReparseBuffer.SubstituteNameOffset + strKeyName.Length + sizeof(WCHAR));
-
-                        // 변경 전후의 값을 가져오기
-                        BYTE* pOldData = pReparseData->GenericReparseBuffer.DataBuffer;
-                        DWORD dwOldDataSize = pReparseData->GenericReparseBuffer.DataBufferLength;
-                        BYTE* pNewData = pSetRequest->Buffer + sizeof(FILE_FS_CONTROL_INFORMATION);
-                        DWORD dwNewDataSize = pSetRequest->Length - sizeof(FILE_FS_CONTROL_INFORMATION);
-
-                        // 변경 내용 출력
-                        DbgPrint("Registry key/value modified: %wZ\\%wZ\n", &strKeyName, &strValueName);
-                        DbgPrint("Old data: ");
-                        for (DWORD i = 0; i < dwOldDataSize; i++)
-                        {
-                            DbgPrint("%02X ", pOldData[i]);
-                        }
-                        DbgPrint("\n");
-
-                        DbgPrint("New data: ");
-                        for (DWORD i = 0; i < dwNewDataSize; i++)
-                        {
-                            DbgPrint("%02X ", pNewData[i]);
-                        }
-                        DbgPrint("\n");
+                        DbgPrint("%02X ", pOldData[i]);
                     }
-                }*/
-                
-            }
+                    DbgPrint("\n");
+
+                    DbgPrint("New data: ");
+                    for (DWORD i = 0; i < dwNewDataSize; i++)
+                    {
+                        DbgPrint("%02X ", pNewData[i]);
+                    }
+                    DbgPrint("\n");
+                }
+            }*/
+
         }
+    }
 
 
 
@@ -1032,6 +1038,94 @@ Return Value:
     // This passes the request down to the next miniFilter in the chain.
 
     return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+}
+
+
+
+void initProcess()
+{
+    PEPROCESS current_process = PsGetCurrentProcess();
+
+    for (g_processnameoffset = 0; g_processnameoffset < 3 * PAGE_SIZE; g_processnameoffset++) {
+        if (!_strnicmp("system", (PCHAR)current_process + g_processnameoffset, strlen("system"))) {
+            break;
+        }
+    }
+    DbgPrint("[dmjoo] g_processnameoffset = 0x%X\n", g_processnameoffset);
+}
+
+int getProcName(PEPROCESS pProcess, PCHAR procName) {
+    if (pProcess && g_processnameoffset > 0) {
+        __try {
+            DbgPrint("[dmjoo:procname]%S", (PCHAR)pProcess + g_processnameoffset);
+            strncpy(procName, (PCHAR)pProcess + g_processnameoffset, 16);
+            return 1;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+
+        }
+
+    }
+    return -1;
+}
+
+NTSTATUS CopyFile(PUNICODE_STRING sourcePath, PUNICODE_STRING destinationPath)
+{
+    OBJECT_ATTRIBUTES sourceAttributes, destinationAttributes;
+    IO_STATUS_BLOCK ioStatusBlock;
+    HANDLE sourceFileHandle = NULL, destinationFileHandle = NULL;
+    NTSTATUS status;
+
+    // Open the source file.
+    InitializeObjectAttributes(&sourceAttributes, sourcePath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwCreateFile(&sourceFileHandle, GENERIC_READ, &sourceAttributes, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT,
+        NULL, 0);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    // Open the destination file.
+    InitializeObjectAttributes(&destinationAttributes, destinationPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwCreateFile(&destinationFileHandle, GENERIC_WRITE, &destinationAttributes, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_CREATE, FILE_SYNCHRONOUS_IO_NONALERT,
+        NULL, 0);
+    if (!NT_SUCCESS(status)) {
+        ZwClose(sourceFileHandle);
+        return status;
+    }
+
+    // Read from the source file and write to the destination file.
+    const ULONG bufferSize = 1024 * 1024; // 1 MB
+    PVOID buffer = ExAllocatePoolWithTag(NonPagedPool, bufferSize, 'CFPL');
+    ULONG bytesRead = 0, bytesWritten = 0;
+    while (NT_SUCCESS(status)) {
+        status = ZwReadFile(sourceFileHandle, NULL, NULL, NULL, &ioStatusBlock, buffer, bufferSize, NULL, NULL);
+        if (status == STATUS_END_OF_FILE) {
+            status = STATUS_SUCCESS;
+            break;
+        }
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+        bytesRead = (ULONG)ioStatusBlock.Information;
+        status = ZwWriteFile(destinationFileHandle, NULL, NULL, NULL, &ioStatusBlock, buffer, bytesRead, NULL, NULL);
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+        bytesWritten = (ULONG)ioStatusBlock.Information;
+        if (bytesRead != bytesWritten) {
+            status = STATUS_UNSUCCESSFUL;
+            break;
+        }
+    }
+
+    // Clean up.
+    ZwClose(sourceFileHandle);
+    ZwClose(destinationFileHandle);
+    ExFreePoolWithTag(buffer, 'CFPL');
+
+    return status;
 }
 
 
