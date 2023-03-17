@@ -150,6 +150,9 @@ Exit:
 	return Matched;
 }
 
+//[dmjoo:rename] \REGISTRY\MACHINE\SOFTWARE\Classes\classes_root_1 -> classes_root_12
+//[dmjoo:rename] \REGISTRY\USER\S - 1 - 5 - 21 - 734880807 - 2553592052 - 4167930440 - 1001\새 키 #1->새 키 #2
+
 LPCWSTR
 GetNotifyClassString(
 	_In_ REG_NOTIFY_CLASS NotifyClass
@@ -251,7 +254,7 @@ NTSTATUS RegistryFilterCallback(
 	NotifyClass = (REG_NOTIFY_CLASS)(ULONG_PTR)Argument1;
 	HANDLE pid = PsGetCurrentProcessId();
 
-	if ((ULONGLONG)pid != 7356) return STATUS_SUCCESS;
+	if ((ULONGLONG)pid != 5544) return STATUS_SUCCESS;
 
 
 	if (Argument2 == NULL) {
@@ -278,7 +281,7 @@ NTSTATUS RegistryFilterCallback(
 		{
 			DbgPrint("[dmjoo:rename] %wZ -> %wZ\n", RootObjectName, RegInformation->NewName);
 			//getRegList(RootObjectName);
-			RtlInitUnicodeString(&keyName1, L"\\Registry\\User\\SOFTWARE\\goose");
+			RtlInitUnicodeString(&keyName1, L"\\REGISTRY\\USER\\S - 1 - 5 - 21 - 734880807 - 2553592052 - 4167930440 - 1001\\SOFTWARE\\goose3");
 			RtlInitUnicodeString(&keyName2, L"\\REGISTRY\\USER\\S - 1 - 5 - 21 - 734880807 - 2553592052 - 4167930440 - 1001\\SOFTWARE\\goose2");
 
 			//EnumerateRegistryKeys(RootObjectName);
