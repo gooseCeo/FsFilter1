@@ -17,11 +17,12 @@ Environment:
 #include <fltKernel.h>
 #include <dontuse.h>
 #include <ntifs.h>
-
+#include <ntddk.h>
 #include "RegMonitor.h"
 
 #pragma prefast(disable:__WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
 
+void NotifyRoutine(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo);
 ULONG g_processnameoffset = 0;
 void initProcess();
 int getProcName(PEPROCESS pProcess, PCHAR procName);
@@ -573,7 +574,7 @@ Return Value:
         ("FsFilter1!DriverEntry: Entered\n"));
 
     initProcess();
-    InstallRegMonitor(DriverObject);
+    //InstallRegMonitor(DriverObject);
     //
     //  Register with FltMgr to tell it our callback routines
     //
@@ -584,6 +585,7 @@ Return Value:
 
     FLT_ASSERT(NT_SUCCESS(status));
 
+    PsSetCreateProcessNotifyRoutineEx(NotifyRoutine, FALSE);
     if (NT_SUCCESS(status)) {
 
         //
@@ -632,13 +634,37 @@ Return Value:
     PT_DBG_PRINT(PTDBG_TRACE_ROUTINES,
         ("FsFilter1!FsFilter1Unload: Entered\n"));
 
-    UnInstallRegMonitor();
+    //UnInstallRegMonitor();
 
     FltUnregisterFilter(gFilterHandle);
+
+    PsSetCreateProcessNotifyRoutineEx(NotifyRoutine, TRUE);
 
     return STATUS_SUCCESS;
 }
 
+WCHAR g_TempString[512] = { 0, };
+void NotifyRoutine(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
+{
+    UNREFERENCED_PARAMETER(Process);
+
+    if (CreateInfo == NULL) { //프로세스종료시
+        goto exit;
+    }
+    
+    memset(g_TempString, 0, 512 * sizeof(WCHAR));
+    memcpy(g_TempString, CreateInfo->ImageFileName->Buffer, CreateInfo->ImageFileName->Length);
+    
+    _wcsupr(g_TempString);
+    if (wcswcs(g_TempString, L"SVCHOST.EXE")) {
+        DbgPrint("[dmjoo:execute] [%llu]%wZ %wZ\n",(ULONGLONG)ProcessId, CreateInfo->ImageFileName, CreateInfo->CommandLine);
+        //CreateInfo->CreationStatus = STATUS_UNSUCCESSFUL;
+    }
+    
+    //DbgPrint("[dmjoo:execute] [%llu]%wZ %wZ\n", (ULONGLONG)ProcessId, CreateInfo->ImageFileName, CreateInfo->CommandLine);
+exit:
+    return;
+}
 
 /*************************************************************************
     MiniFilter callback routines.
@@ -1129,3 +1155,4 @@ NTSTATUS CopyFile(PUNICODE_STRING sourcePath, PUNICODE_STRING destinationPath)
 }
 
 
+// iomarkirppending : status_pending
