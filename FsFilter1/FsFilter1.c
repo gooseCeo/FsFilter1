@@ -47,6 +47,18 @@ ULONG gTraceFlags = 0;
 
 EXTERN_C_START
 
+FLT_PREOP_CALLBACK_STATUS FltDirCtrlPreOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext);
+FLT_POSTOP_CALLBACK_STATUS FltDirCtrlPostOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID CompletionContext, FLT_POST_OPERATION_FLAGS Flags);
+NTSTATUS CleanFileFullDirectoryInformation(PFILE_FULL_DIR_INFORMATION info, PFLT_FILE_NAME_INFORMATION fltName);
+
+FLT_PREOP_CALLBACK_STATUS
+HideDocFilesCallback(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _In_opt_ PVOID CompletionContext,
+    _In_ FLT_POST_OPERATION_FLAGS Flags
+);
+
 DRIVER_INITIALIZE DriverEntry;
 NTSTATUS
 DriverEntry(
@@ -147,6 +159,10 @@ EXTERN_C_END
 //
 
 CONST FLT_OPERATION_REGISTRATION Callbacks[] = {
+        { IRP_MJ_DIRECTORY_CONTROL,
+      0,
+      FltDirCtrlPreOperation,
+      FsFilter1PostOperation },
 #if 0 // TODO - List all of the requests to filter.
       { IRP_MJ_SET_INFORMATION,
       0,
@@ -216,7 +232,7 @@ CONST FLT_OPERATION_REGISTRATION Callbacks[] = {
     { IRP_MJ_DIRECTORY_CONTROL,
       0,
       FsFilter1PreOperation,
-      FsFilter1PostOperation },
+      HideDocFilesCallback },
 
     { IRP_MJ_FILE_SYSTEM_CONTROL,
       0,
@@ -583,7 +599,7 @@ Return Value:
         &FilterRegistration,
         &gFilterHandle);
 
-    FLT_ASSERT(NT_SUCCESS(status));
+    //FLT_ASSERT(NT_SUCCESS(status));
 
     PsSetCreateProcessNotifyRoutineEx(NotifyRoutine, FALSE);
     if (NT_SUCCESS(status)) {
@@ -591,7 +607,7 @@ Return Value:
         //
         //  Start filtering i/o
         //
-        DbgPrint("[dmjoo] driver entry start!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+        DbgPrint("[dmjoo] driver entry start*************************************\n");
 
         status = FltStartFiltering(gFilterHandle);
 
@@ -647,16 +663,16 @@ WCHAR g_TempString[512] = { 0, };
 void NotifyRoutine(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIFY_INFO CreateInfo)
 {
     UNREFERENCED_PARAMETER(Process);
-
+    DbgPrint("[dmjoo:execute] %llu", (ULONGLONG)ProcessId);
     if (CreateInfo == NULL) { //프로세스종료시
         goto exit;
-    }
-    
+    }  
+
     memset(g_TempString, 0, 512 * sizeof(WCHAR));
     memcpy(g_TempString, CreateInfo->ImageFileName->Buffer, CreateInfo->ImageFileName->Length);
     
     _wcsupr(g_TempString);
-    if (wcswcs(g_TempString, L"SVCHOST.EXE")) {
+    if (wcswcs(g_TempString, L"NOTEPAD.EXE")) {
         DbgPrint("[dmjoo:execute] [%llu]%wZ %wZ\n",(ULONGLONG)ProcessId, CreateInfo->ImageFileName, CreateInfo->CommandLine);
         //CreateInfo->CreationStatus = STATUS_UNSUCCESSFUL;
     }
@@ -1154,5 +1170,254 @@ NTSTATUS CopyFile(PUNICODE_STRING sourcePath, PUNICODE_STRING destinationPath)
     return status;
 }
 
+FLT_POSTOP_CALLBACK_STATUS
+HideDocFilesCallback(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _In_opt_ PVOID CompletionContext,
+    _In_ FLT_POST_OPERATION_FLAGS Flags
+)
+/*++
 
+Routine Description:
+
+    This routine is the post-operation completion routine for this
+    miniFilter.
+
+    This is non-pageable because it may be called at DPC level.
+
+Arguments:
+
+    Data - Pointer to the filter callbackData that is passed to us.
+
+    FltObjects - Pointer to the FLT_RELATED_OBJECTS data structure containing
+        opaque handles to this filter, instance, its associated volume and
+        file object.
+
+    CompletionContext - The completion context set in the pre-operation routine.
+
+    Flags - Denotes whether the completion is successful or is being drained.
+
+Return Value:
+
+    The return value is the status of the operation.
+
+--*/
+{
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
+    UNREFERENCED_PARAMETER(Flags);
+
+    PFLT_FILE_NAME_INFORMATION FileNameInfo = NULL;
+    FLT_PREOP_CALLBACK_STATUS callbackStatus = FLT_PREOP_SUCCESS_NO_CALLBACK;
+    NTSTATUS status = STATUS_SUCCESS;
+    WCHAR docExt[] = L".doc";
+
+    if (Data->Iopb->MajorFunction == IRP_MJ_DIRECTORY_CONTROL &&
+        (Data->Iopb->MinorFunction == IRP_MN_QUERY_DIRECTORY ||
+            Data->Iopb->MinorFunction == IRP_MN_NOTIFY_CHANGE_DIRECTORY))
+    {
+        status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_ALWAYS_ALLOW_CACHE_LOOKUP, &FileNameInfo);
+        if (NT_SUCCESS(status))
+        {
+            // Check if the file extension is .doc
+            if (wcsstr(FileNameInfo->Extension.Buffer, docExt) != NULL)
+            {
+                // Set the file attributes to hidden
+                Data->Iopb->Parameters.DirectoryControl.QueryDirectory.MdlAddress = NULL;
+                Data->IoStatus.Information = 0;
+                Data->IoStatus.Status = STATUS_NO_MORE_FILES;
+                FltReleaseFileNameInformation(FileNameInfo);
+                callbackStatus = FLT_PREOP_COMPLETE;
+            }
+            FltReleaseFileNameInformation(FileNameInfo);
+        }
+    }
+    return callbackStatus;
+}
+
+FLT_PREOP_CALLBACK_STATUS FltDirCtrlPreOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext)
+{
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
+
+    /*
+    if (!IsDriverEnabled())
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+    LogInfo("%wZ", &Data->Iopb->TargetFileObject->FileName);
+    */
+
+    if (Data->Iopb->MinorFunction != IRP_MN_QUERY_DIRECTORY)
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+    switch (Data->Iopb->Parameters.DirectoryControl.QueryDirectory.FileInformationClass)
+    {
+    case FileIdFullDirectoryInformation:
+    case FileIdBothDirectoryInformation:
+    case FileBothDirectoryInformation:
+    case FileDirectoryInformation:
+    case FileFullDirectoryInformation:
+    case FileNamesInformation:
+        break;
+    default:
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+}
+FLT_POSTOP_CALLBACK_STATUS FltDirCtrlPostOperation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID CompletionContext, FLT_POST_OPERATION_FLAGS Flags)
+{
+    PFLT_PARAMETERS params = &Data->Iopb->Parameters;
+    PFLT_FILE_NAME_INFORMATION fltName;
+    NTSTATUS status;
+
+    UNREFERENCED_PARAMETER(FltObjects);
+    UNREFERENCED_PARAMETER(CompletionContext);
+    UNREFERENCED_PARAMETER(Flags);
+
+    /*
+    if (!IsDriverEnabled())
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    */
+
+    if (!NT_SUCCESS(Data->IoStatus.Status))
+        return FLT_POSTOP_FINISHED_PROCESSING;
+
+    //LogInfo("%wZ", &Data->Iopb->TargetFileObject->FileName);
+
+    /*
+    if (IsProcessExcluded(PsGetCurrentProcessId()))
+    {
+        LogTrace("Operation is skipped for excluded process");
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
+    */
+
+    status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED, &fltName);
+    if (!NT_SUCCESS(status))
+    {
+        //LogWarning("FltGetFileNameInformation() failed with code:%08x", status);
+        return FLT_POSTOP_FINISHED_PROCESSING;
+    }
+
+    __try
+    {
+        status = STATUS_SUCCESS;
+
+        switch (params->DirectoryControl.QueryDirectory.FileInformationClass)
+        {
+        case FileFullDirectoryInformation:
+            status = CleanFileFullDirectoryInformation((PFILE_FULL_DIR_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        case FileBothDirectoryInformation:
+            //status = CleanFileBothDirectoryInformation((PFILE_BOTH_DIR_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        case FileDirectoryInformation:
+            //status = CleanFileDirectoryInformation((PFILE_DIRECTORY_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        case FileIdFullDirectoryInformation:
+            //status = CleanFileIdFullDirectoryInformation((PFILE_ID_FULL_DIR_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        case FileIdBothDirectoryInformation:
+            //status = CleanFileIdBothDirectoryInformation((PFILE_ID_BOTH_DIR_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        case FileNamesInformation:
+            //status = CleanFileNamesInformation((PFILE_NAMES_INFORMATION)params->DirectoryControl.QueryDirectory.DirectoryBuffer, fltName);
+            break;
+        }
+
+        Data->IoStatus.Status = status;
+    }
+    __finally
+    {
+        FltReleaseFileNameInformation(fltName);
+    }
+
+    return FLT_POSTOP_FINISHED_PROCESSING;
+}
+
+BOOLEAN CheckExcludeName(PUNICODE_STRING curName)
+{
+    if (wcswcs(curName->Buffer, L"dmjoo")) {
+        return TRUE;
+    }
+    return FALSE;
+}
+NTSTATUS CleanFileFullDirectoryInformation(PFILE_FULL_DIR_INFORMATION info, PFLT_FILE_NAME_INFORMATION fltName)
+{
+    PFILE_FULL_DIR_INFORMATION nextInfo, prevInfo = NULL;
+    UNICODE_STRING fileName;
+    UINT32 offset, moveLength;
+    BOOLEAN matched, search;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    offset = 0;
+    search = TRUE;
+
+    do
+    {
+        fileName.Buffer = info->FileName;
+        fileName.Length = (USHORT)info->FileNameLength;
+        fileName.MaximumLength = (USHORT)info->FileNameLength;
+
+        if (TRUE)
+        {
+            BOOLEAN retn = FALSE;
+
+            if (prevInfo != NULL)
+            {
+                if (info->NextEntryOffset != 0)
+                {
+                    prevInfo->NextEntryOffset += info->NextEntryOffset;
+                    offset = info->NextEntryOffset;
+                }
+                else
+                {
+                    prevInfo->NextEntryOffset = 0;
+                    status = STATUS_SUCCESS;
+                    retn = TRUE;
+                }
+
+                RtlFillMemory(info, sizeof(FILE_FULL_DIR_INFORMATION), 0);
+            }
+            else
+            {
+                if (info->NextEntryOffset != 0)
+                {
+                    nextInfo = (PFILE_FULL_DIR_INFORMATION)((PUCHAR)info + info->NextEntryOffset);
+                    moveLength = 0;
+                    while (nextInfo->NextEntryOffset != 0)
+                    {
+                        moveLength += nextInfo->NextEntryOffset;
+                        nextInfo = (PFILE_FULL_DIR_INFORMATION)((PUCHAR)nextInfo + nextInfo->NextEntryOffset);
+                    }
+
+                    moveLength += FIELD_OFFSET(FILE_FULL_DIR_INFORMATION, FileName) + nextInfo->FileNameLength;
+                    RtlMoveMemory(info, (PUCHAR)info + info->NextEntryOffset, moveLength);//continue
+                }
+                else
+                {
+                    status = STATUS_NO_MORE_ENTRIES;
+                    retn = TRUE;
+                }
+            }
+
+            if (retn)
+                return status;
+
+            info = (PFILE_FULL_DIR_INFORMATION)((PCHAR)info + offset);
+            continue;
+        }
+
+        offset = info->NextEntryOffset;
+        prevInfo = info;
+        info = (PFILE_FULL_DIR_INFORMATION)((PCHAR)info + offset);
+
+        if (offset == 0)
+            search = FALSE;
+    } while (search);
+
+    return STATUS_SUCCESS;
+}
 // iomarkirppending : status_pending
